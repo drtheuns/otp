@@ -755,7 +755,8 @@ risk.
       | send_ext_info_daemon_option()
       | gen_tcp:listen_option()
       | common_option()
-      | experimental_daemon_options() .
+      | experimental_daemon_options()
+      | handler_context_option() .
 
 -doc(#{group => <<"Daemon Options">>}).
 -type subsystem_daemon_option() :: {subsystems, subsystem_specs()}.
@@ -1196,6 +1197,22 @@ in the User's Guide chapter.
       | {bannerfun, fun((User::string()) -> binary())}.
 
 -doc """
+The handler context is initialized for each separate SSH connection, and is
+passed to each subsystem in the corresponding `init` callback. It's also
+possible to hook into the server's authentication through the
+`ssh_server_key_api:update_handler_context/4` callback, allowing for
+user-specific state to be passed to each subsystem.
+
+This value can either be:
+
+- A function that receives the given daemon options.
+- An MFA tuple. The daemon options are appended to the end of the given args list.
+- A plain value.
+""".
+-doc(#{group => <<"Daemon Options">>}).
+-type handler_context_option() :: fun((daemon_options()) -> any()) | {Module::atom(), Function::atom()} | any().
+
+-doc """
 Experimental options that should not to be used in products.
 """.
 -type experimental_daemon_options()  ::
@@ -1286,13 +1303,16 @@ Experimental options that should not to be used in products.
 	  userauth_quiet_mode,              %  boolean()
 	  userauth_methods,                 %  list( string() )  eg ["keyboard-interactive", "password"]
 	  userauth_supported_methods,       %  string() eg "keyboard-interactive,password"
-          userauth_pubkeys,
+	  userauth_pubkeys,
 	  kb_tries_left = 0,                %  integer(), num tries left for "keyboard-interactive"
 	  userauth_preference,
 	  available_host_keys,
 	  pwdfun_user_state,
 	  authenticated = false,
-	  userauth_banner_sent = false
+	  userauth_banner_sent = false,
+
+	  %% User-defined for custom handlers and subsystems.
+	  handler_context
 	 }).
 
 -record(alg,

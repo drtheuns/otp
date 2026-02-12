@@ -341,11 +341,11 @@ handle_userauth_request(#ssh_msg_userauth_request{user = User,
         UserOk andalso
         verify_sig(SessionId, User, "ssh-connection", BAlg, KeyBlob, SigWLen, Ssh)
     of
-	true ->
+	{ok, Ssh1} ->
 	    {authorized, User, 
-             {#ssh_msg_userauth_success{}, Ssh}
+             {#ssh_msg_userauth_success{}, Ssh1}
             };
-	false ->
+	error ->
 	    {not_authorized, {User, undefined}, 
 	     {#ssh_msg_userauth_failure{authentications = Methods,
                                         partial_success = false}, Ssh}
@@ -569,10 +569,16 @@ verify_sig(SessionId, User, Service, AlgBin, KeyBlob, SigWLen, #ssh{opts=Opts} =
         <<?UINT32(AlgSigLen), AlgSig:AlgSigLen/binary>> = SigWLen,
         <<?UINT32(AlgLen), _Alg:AlgLen/binary,
           ?UINT32(SigLen), Sig:SigLen/binary>> = AlgSig,
-        ssh_transport:verify(PlainText, list_to_existing_atom(Alg), Sig, Key, Ssh)
+
+        case ssh_transport:verify(PlainText, list_to_existing_atom(Alg), Sig, Key, Ssh) of
+            true ->
+                {ok, update_handler_context(Key, User, Ssh)};
+            false ->
+                error
+        end
     catch
-	_:_ ->
-	    false
+    _:_ ->
+        error
     end.
 
 build_sig_data(SessionId, User, Service, KeyBlob, Alg) ->
@@ -591,6 +597,16 @@ build_sig_data(SessionId, User, Service, KeyBlob, Alg) ->
 key_alg('rsa-sha2-256') -> 'ssh-rsa';
 key_alg('rsa-sha2-512') -> 'ssh-rsa';
 key_alg(Alg) -> Alg.
+
+update_handler_context(Key, User, #ssh{handler_context=HandlerContext0, opts=Opts} = Ssh0) ->
+    {KeyCb, _} = ?GET_OPT(key_cb, Opts),
+    case erlang:function_exported(KeyCb, update_handler_context, 4) of
+        true ->
+            HandlerContext = ssh_transport:call_KeyCb(update_handler_context, [HandlerContext0, Key, User], Opts),
+            Ssh0#ssh{handler_context=HandlerContext};
+        false ->
+            Ssh0
+    end.
 
 %%%================================================================
 %%%

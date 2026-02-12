@@ -176,8 +176,8 @@ The following message is taken care of by the `ssh_client_channel` behavior.
 -behaviour(gen_server).
 
 %%% API
--export([start/4, start/5, start_link/4, start_link/5, call/2, call/3,
-	 cast/2, reply/2, enter_loop/1]).
+-export([start/4, start/5, start/6, start_link/4, start_link/5, start_link/6, 
+         call/2, call/3, cast/2, reply/2, enter_loop/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
@@ -292,11 +292,16 @@ start(ConnectionManager, ChannelId, CallBack, CbInitArgs) ->
 
 -doc false.
 start(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec) ->
+    start(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, undefined).
+
+-doc false.
+start(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, HandlerContext) ->
     Options = [{channel_cb, CallBack},
 	       {channel_id, ChannelId},
 	       {init_args, CbInitArgs},
 	       {cm, ConnectionManager},
-	       {exec, Exec}],
+	       {exec, Exec},
+               {handler_context, HandlerContext}],
     gen_server:start(?MODULE, [Options], []).
 
 -doc """
@@ -320,15 +325,20 @@ the callback module's `init/1` function. Common patterns include:
       CbInitArgs :: term(),
       ChannelRef :: pid().
 start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs) ->
-    start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, undefined).
+    start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, undefined, undefined).
 
 -doc false.
 start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec) ->
+    start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, undefined).
+
+-doc false.
+start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, HandlerContext) ->
     Options = [{channel_cb, CallBack},
 	       {channel_id, ChannelId},
 	       {init_args, CbInitArgs},
 	       {cm, ConnectionManager},
-	       {exec, Exec}],
+	       {exec, Exec},
+               {handler_context, HandlerContext}],
     gen_server:start_link(?MODULE, [Options], []).
 
 -doc """
@@ -393,8 +403,14 @@ init([Options]) ->
     Cb = proplists:get_value(channel_cb, Options),
     ConnectionManager =  proplists:get_value(cm, Options),
     ChannelId = proplists:get_value(channel_id, Options),
+    HandlerContext = proplists:get_value(handler_context, Options),
+    CommonOptions = [{handler_context, HandlerContext}],
+    Args = channel_cb_init_args(Options),
     process_flag(trap_exit, true),
-    try Cb:init(channel_cb_init_args(Options)) of
+    try (case erlang:function_exported(Cb, init, 2) of
+             true -> Cb:init(Args, CommonOptions);
+             false -> Cb:init(Args)
+         end) of
 	{ok, ChannelState} ->
 	    State = #state{cm = ConnectionManager, 
 			   channel_cb = Cb,

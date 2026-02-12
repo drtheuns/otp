@@ -25,6 +25,19 @@
 -module(ssh_sftpd_file_api).
 -moduledoc false.
 
+-doc """
+Initialize the file handler.
+
+The first argument is the file state that was optionally passed in the
+`file_handler` option to the SFTPD `subsystem_spec`.
+
+The second argument contains the handler context from the daemon options. See
+`t:ssh:handler_context_option/0` for more details.
+""".
+-callback init(State::term(), HandlerContext::any()) -> State::term().
+
+-optional_callbacks([init/2]).
+
 %% To be further specified later
 -callback close(file:io_device(), State::term()) ->
     {ok, State::term()} | {{error, Reason::term()}, State::term()}.

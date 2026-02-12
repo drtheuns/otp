@@ -73,3 +73,14 @@ is available with the key `key_cb_private`.
 		      DaemonOptions :: daemon_key_cb_options(any())
                      ) ->
     boolean().
+
+-doc "Update the handler context with the successfully authenticated user.".
+-doc(#{since => <<"OTP I dont know">>}).
+-callback update_handler_context(HandlerContext :: any(),
+                                 PublicKey :: public_key:public_key(),
+                                 User :: string(),
+                                 DaemonOptions :: daemon_key_cb_options(any())
+                                ) ->
+    any().
+
+-optional_callbacks([update_handler_context/4]).

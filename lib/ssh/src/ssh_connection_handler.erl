@@ -202,7 +202,7 @@ start_channel(ConnectionHandler, CallbackModule, ChannelId, Args, Exec) ->
     {ok, {ConnectionSup,Role,Opts}} = call(ConnectionHandler, get_misc),
     ssh_connection_sup:start_channel(Role, ConnectionSup,
                                     ConnectionHandler, CallbackModule, ChannelId,
-                                    Args, Exec, Opts).
+                                    Args, Exec, Opts, undefined).
 
 %%--------------------------------------------------------------------
 handle_direct_tcpip(ConnectionHandler, ListenHost, ListenPort, ConnectToHost, ConnectToPort, Timeout) ->
@@ -444,7 +444,8 @@ init_ssh_record(Role, Socket, PeerAddr, Opts) ->
 	      opts = Opts,
 	      userauth_supported_methods = AuthMethods,
 	      available_host_keys = available_hkey_algorithms(Role, Opts),
-	      random_length_padding = ?GET_OPT(max_random_length_padding, Opts)
+	      random_length_padding = ?GET_OPT(max_random_length_padding, Opts),
+	      handler_context = init_handler_context(Opts)
 	   },
 
     {Vsn, Version} = ssh_transport:versions(Role, Opts),
@@ -490,6 +491,16 @@ init_ssh_record(Role, Socket, PeerAddr, Opts) ->
 		   peer = {undefined, PeerAddr},
                    local = LocalName
 		  }
+    end.
+
+init_handler_context(Opts) ->
+    case ?GET_OPT(handler_context, Opts, []) of
+        Callback when is_function(Callback, 1) ->
+            Callback(Opts);
+        {Mod, Func, Args} when is_atom(Mod) and is_atom(Func) and is_list(Args) ->
+            apply(Mod, Func, Args ++ [Opts]);
+        Term ->
+            Term
     end.
 
 handshake(ConnPid, server, Ref, Timeout) ->
@@ -1363,7 +1374,7 @@ handle_event(info, {fwd_connect_received, Sock, ChId, ChanCB}, StateName, #data{
                 channel_cache = Cache,
                 connection_supervisor = ConnectionSup} = Connection,
     Channel = ssh_client_channel:cache_lookup(Cache, ChId),
-    {ok,Pid} = ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined, Options),
+    {ok,Pid} = ssh_connection_sup:start_channel(?role(StateName), ConnectionSup, self(), ChanCB, ChId, [Sock], undefined, Options, undefined),
     ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
     gen_tcp:controlling_process(Sock, Pid),
     inet:setopts(Sock, [{active,once}]),

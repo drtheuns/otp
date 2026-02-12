@@ -928,7 +928,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "forwarded-tcpip",
                        options = Options,
                        connection_supervisor = ConnectionSup
                       } = C,
-	   client, _SSH) ->
+	   client, #ssh{handler_context = HandlerContext}) ->
     {ReplyMsg, NextChId} =
         case ssh_connection_handler:retrieve(C, {tcpip_forward,ConnectedHost,ConnectedPort}) of
             {ok, {ConnectToHost,ConnectToPort}} ->
@@ -936,7 +936,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "forwarded-tcpip",
                     {ok,Sock} ->
                         {ok,Pid} = ssh_connection_sup:start_channel(client, ConnectionSup, self(),
                                                                    ssh_tcpip_forward_client, ChId,
-                                                                   [Sock], undefined, Options),
+                                                                   [Sock], undefined, Options, HandlerContext),
                         ssh_client_channel:cache_update(Cache,
                                                         #channel{type = "forwarded-tcpip",
                                                                  sys = "none",
@@ -986,7 +986,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
                        options = Options,
                        connection_supervisor = ConnectionSup
                       } = C,
-	   server, _SSH) ->
+	   server, #ssh{handler_context = HandlerContext}) ->
     Allowed = case ?GET_OPT(tcpip_tunnel_in, Options) of
                   T when is_boolean(T) -> T;
                   AllowedFun when is_function(AllowedFun, 2) ->
@@ -1012,7 +1012,7 @@ handle_msg(#ssh_msg_channel_open{channel_type = "direct-tcpip",
                     {ok,Sock} ->
                         {ok,Pid} = ssh_connection_sup:start_channel(server, ConnectionSup, self(),
                                                                    ssh_tcpip_forward_srv, ChId,
-                                                                   [Sock], undefined, Options),
+                                                                   [Sock], undefined, Options, HandlerContext),
                         ssh_client_channel:cache_update(Cache,
                                                         #channel{type = "direct-tcpip",
                                                                  sys = "none",
@@ -1128,15 +1128,15 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 
 handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 				    request_type = "subsystem",
-				    want_reply = WantReply,
+                                    want_reply = WantReply,
 				    data = Data},
-	   #connection{channel_cache = Cache} = Connection, server, _SSH) ->
+	   #connection{channel_cache = Cache} = Connection, server, #ssh{handler_context = HandlerContext}) ->
     <<?DEC_BIN(SsName,_SsLen)>> = Data,
     #channel{remote_id=RemoteId} = Channel = 
 	ssh_client_channel:cache_lookup(Cache, ChannelId), 
+    ReplyMsg = {subsystem, ChannelId, WantReply, binary_to_list(SsName)},
     Reply =
-        case start_subsystem(SsName, Connection, Channel,
-                             {subsystem, ChannelId, WantReply, binary_to_list(SsName)}) of
+        case start_subsystem(SsName, Connection, Channel, ReplyMsg, HandlerContext) of
             {ok, Pid} ->
                 erlang:monitor(process, Pid),
                 ssh_client_channel:cache_update(Cache, Channel#channel{user=Pid}),
@@ -1155,7 +1155,7 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 				    request_type = "pty-req",
 				    want_reply = WantReply,
 				    data = Data},
-	   Connection, server, _SSH) ->
+	   Connection, server, SSH) ->
     <<?DEC_BIN(BTermName,_TermLen),
       ?UINT32(Width),?UINT32(Height),
       ?UINT32(PixWidth), ?UINT32(PixHeight),
@@ -1175,7 +1175,7 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
     PtyRequest = {TermName, Width, Height,
 		  PixWidth, PixHeight, PtyOpts},
     handle_cli_msg(Connection, ChannelId,
-		   {pty, ChannelId, WantReply, PtyRequest});
+		   {pty, ChannelId, WantReply, PtyRequest}, SSH);
 
 handle_msg(#ssh_msg_channel_request{request_type = "pty-req"},
 	   Connection, client, _SSH) ->
@@ -1185,9 +1185,9 @@ handle_msg(#ssh_msg_channel_request{request_type = "pty-req"},
 handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 				    request_type = "shell",
 				    want_reply = WantReply},
-	   Connection, server, _SSH) ->
+	   Connection, server, SSH) ->
     handle_cli_msg(Connection, ChannelId,
-		   {shell, ChannelId, WantReply});
+		   {shell, ChannelId, WantReply}, SSH);
  
 handle_msg(#ssh_msg_channel_request{request_type = "shell"},
 	   Connection, client, _SSH) ->
@@ -1198,10 +1198,10 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
 				    request_type = "exec",
 				    want_reply = WantReply,
 				    data = Data},
-	   Connection, server, _SSH) ->
+	   Connection, server, SSH) ->
     <<?DEC_BIN(Command, _Len)>> = Data,
     handle_cli_msg(Connection, ChannelId,
-		   {exec, ChannelId, WantReply, binary_to_list(Command)});
+		   {exec, ChannelId, WantReply, binary_to_list(Command)}, SSH);
 	
 handle_msg(#ssh_msg_channel_request{request_type = "exec"},
 	   Connection, client, _SSH) ->
@@ -1212,10 +1212,10 @@ handle_msg(#ssh_msg_channel_request{recipient_channel = ChannelId,
   				    request_type = "env",
   				    want_reply = WantReply,
   				    data = Data}, 
-	   Connection, server, _SSH) ->
+	   Connection, server, SSH) ->
     <<?DEC_BIN(Var,_VarLen), ?DEC_BIN(Value,_ValLen)>> = Data,
     handle_cli_msg(Connection, ChannelId,
- 		   {env, ChannelId, WantReply, Var, Value});
+ 		   {env, ChannelId, WantReply, Var, Value}, SSH);
 
 handle_msg(#ssh_msg_channel_request{request_type = "env"},
 	   Connection, client, _SSH) ->
@@ -1482,22 +1482,22 @@ setup_session(#connection{channel_cache = Cache,
 start_cli(#connection{options = Options, 
 		      cli_spec = CliSpec,
 		      exec = Exec,
-		      connection_supervisor = ConnectionSup}, ChannelId) ->
+		      connection_supervisor = ConnectionSup}, ChannelId, HandlerContext) ->
     case CliSpec of
         no_cli ->
             {error, cli_disabled};
         {CbModule, Args} ->
-            ssh_connection_sup:start_channel(server, ConnectionSup, self(), CbModule, ChannelId, Args, Exec, Options)
+            ssh_connection_sup:start_channel(server, ConnectionSup, self(), CbModule, ChannelId, Args, Exec, Options, HandlerContext)
     end.
 
 
 start_subsystem(BinName, #connection{options = Options,
                                      connection_supervisor = ConnectionSup},
-	       #channel{local_id = ChannelId}, _ReplyMsg) ->
+	       #channel{local_id = ChannelId}, _ReplyMsg, HandlerContext) ->
     Name = binary_to_list(BinName),
     case check_subsystem(Name, Options) of
 	{Callback, Opts} when is_atom(Callback), Callback =/= none ->
-            ssh_connection_sup:start_channel(server, ConnectionSup, self(), Callback, ChannelId, Opts, undefined, Options);
+            ssh_connection_sup:start_channel(server, ConnectionSup, self(), Callback, ChannelId, Opts, undefined, Options, HandlerContext);
         {none, _} ->
             {error, bad_subsystem};
 	{_, _} ->
@@ -1844,12 +1844,12 @@ backwards_compatible([Value| Rest], Acc) ->
 %%% Called at the finnish of handle_msg(#ssh_msg_channel_request,...)
 %%%
 
-handle_cli_msg(C0, ChId, Reply0) ->
+handle_cli_msg(C0, ChId, Reply0, #ssh{handler_context = HandlerContext}) ->
     Cache = C0#connection.channel_cache,
     Ch0 = ssh_client_channel:cache_lookup(Cache, ChId),
     case Ch0#channel.user of
         undefined ->
-            case start_cli(C0, ChId) of
+            case start_cli(C0, ChId, HandlerContext) of
                 {ok, Pid} ->
                     erlang:monitor(process, Pid),
                     Ch = Ch0#channel{user = Pid},

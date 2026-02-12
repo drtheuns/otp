@@ -70,6 +70,17 @@ The time-out values that can be returned have the same semantics as in a
     {stop, Reason :: term()} | ignore.
 
 -doc """
+Same as `init/1` but the second argument contains a proplist of common
+arguments, including the handler context from `t:ssh:handler_context_option/0`.
+""".
+-doc(#{since => <<"TODO: IDK">>}).
+-callback init(Args :: term(), [{handler_context, term()}]) ->
+    {ok, State :: term()} | {ok, State :: term(), timeout() | hibernate} |
+    {stop, Reason :: term()} | ignore.
+
+-optional_callbacks([init/2]).
+
+-doc """
 This function is called by a channel process when it is about to terminate.
 Before this function is called,
 [ssh_connection:close/2 ](`ssh_connection:close/2`)is called, if it has not been
@@ -116,13 +127,13 @@ The following message is taken care of by the `ssh_server_channel` behavior.
 					    State::term()}.
 
 %%% Internal API
--export([start_link/5,
+-export([start_link/6,
          get_print_info/1, get_print_info/2
         ]).
 
 -doc false.
-start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec) ->
-    ssh_client_channel:start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec).
+start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, HandlerContext) ->
+    ssh_client_channel:start_link(ConnectionManager, ChannelId, CallBack, CbInitArgs, Exec, HandlerContext).
 
 
 -doc false.

@@ -38,6 +38,7 @@
 -export([
          close_file/1,
          file_cb/1,
+         file_cb_handler_context/1,
          list_dir_limited/1,
          quit/1,
          root_dir/1,
@@ -64,6 +65,7 @@ all() ->
     [close_file, 
      quit, 
      file_cb,
+     file_cb_handler_context,
      root_dir, 
      list_dir_limited,
      ver6_basic].
@@ -104,13 +106,12 @@ init_per_testcase(TestCase, Config) ->
     ssh:start(),
     UserDir = PrivDir = proplists:get_value(priv_dir, Config),
     SysDir = filename:join(PrivDir,"system"),
-
     Options =
 	case atom_to_list(TestCase) of
 	    "file_cb" ++ _ ->
 		Spec = ssh_sftpd:subsystem_spec([{file_handler,
                                                   ssh_sftpd_file_alt}]),
-		[{subsystems, [Spec]}];
+		[{subsystems, [Spec]}, {handler_context, [{me, self()}]}];
 	    "root_dir" ->
                 PrivDir = proplists:get_value(priv_dir, Config),
 		Root = filename:join(PrivDir, root),
@@ -197,11 +198,11 @@ quit(Config) when is_list(Config) ->
 
 %%--------------------------------------------------------------------
 file_cb(Config) when is_list(Config) ->
+    alt_file_handler_check(alt_init),
+
     DataDir = proplists:get_value(data_dir, Config),
     PrivDir =  proplists:get_value(priv_dir, Config),
     FileName = filename:join(DataDir, "test.txt"),
-
-    register(sftpd_file_alt_tester, self()),
 
     {Sftp, _} = proplists:get_value(sftp, Config),
 
@@ -238,6 +239,13 @@ file_cb(Config) when is_list(Config) ->
     alt_file_handler_check(alt_read_link_info),
     alt_file_handler_check(alt_write_file_info),
     alt_file_handler_check(alt_del_dir).
+
+%%--------------------------------------------------------------------
+file_cb_handler_context(_Config) ->
+    % When `init/2` is implemented then the handler_context given to daemon is
+    % passed down.
+    alt_file_handler_check(alt_init).
+
 %%--------------------------------------------------------------------
 
 root_dir(Config) when is_list(Config) ->

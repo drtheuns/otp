@@ -596,6 +596,11 @@ default(server) ->
             class => user_option
            },
 
+      handler_context =>
+          #{default => fun(_) -> [] end,
+            chk => fun(_) -> true end,
+            class => user_option
+           },
 %%%%% Undocumented
       infofun =>
           #{default => fun(_,_,_) -> void end,

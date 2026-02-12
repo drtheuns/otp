@@ -44,7 +44,7 @@ Specifies a channel process to handle an SFTP subsystem.
 %% External exports
 -export([subsystem_spec/1]).
 
--export([init/1, handle_ssh_msg/2, handle_msg/2, terminate/2]).
+-export([init/1, init/2, handle_ssh_msg/2, handle_msg/2, terminate/2]).
 
 -behaviour(ssh_dbg).
 -export([ssh_dbg_trace_points/0, ssh_dbg_flags/1, ssh_dbg_on/1, ssh_dbg_off/1, ssh_dbg_format/2]).
@@ -139,6 +139,12 @@ subsystem_spec(Options) ->
 %%--------------------------------------------------------------------
 -doc false.
 init(Options) ->
+    init(Options, []).
+
+-doc false.
+init(Options, CommonOptions) ->
+    HandlerContext = proplists:get_value(handler_context, CommonOptions, []),
+
     {FileMod, FS0} = case proplists:get_value(file_handler, Options, 
 					      {ssh_sftpd_file,[]}) of
 			 {F, S} ->
@@ -147,7 +153,12 @@ init(Options) ->
 			     {F, []}
 		     end,
     
-    {{ok, Default}, FS1} = FileMod:get_cwd(FS0),
+    FS1 = case erlang:function_exported(FileMod, init, 2) of
+              true -> FileMod:init(FS0, HandlerContext);
+              false -> FS0
+          end,
+
+    {{ok, Default}, FS2} = FileMod:get_cwd(FS1),
     CWD = proplists:get_value(cwd, Options, Default),
     
     Root0 = proplists:get_value(root, Options, ""),
@@ -160,7 +171,7 @@ init(Options) ->
 	case resolve_symlinks(Root0, 
 			      #state{root = Root0,
 				     file_handler = FileMod, 
-				     file_state = FS1}) of
+				     file_state = FS2}) of
 	    {{ok, Root1}, State0} ->
 		{Root1, State0};
 	    {{error, _}, State0} ->
